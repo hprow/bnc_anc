@@ -350,6 +350,7 @@ async def run_ws(rest: KcFutREST):
                 additional_headers={"X-MBX-APIKEY": BINANCE_API_KEY},
                 ping_interval=25, ping_timeout=20,
             ) as ws:
+                log.info("Connected to Binance Announcements WebSocket...")
                 async for raw in ws:
                     try:
                         msg = json.loads(raw)
@@ -362,6 +363,7 @@ async def run_ws(rest: KcFutREST):
                         # swallow parsing exceptions; keep loop hot
                         pass
         except Exception:
+            log.info("Lost Connection to Binance Announcements WebSocket, Reconnecting ...")
             await asyncio.sleep(1)
 
 # ─────────────────────────────────────────────────────────
