@@ -59,8 +59,8 @@ async def run():
                     # Timestamp log line
                     recv_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                     log.info(
-                        "📄 %s | catalogId=%s | handled @ %s UTC",
-                        title,
+                        "%s | catalogId=%s | handled @ %s UTC",
+                        payload.get("title", ""),
                         payload.get("catalogId"),
                         recv_ts,
                     )
