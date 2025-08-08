@@ -39,10 +39,10 @@ async def run_fake_ws(exchanges):
         await server.wait_closed()
 
 
-def main():
+async def main():
     exchanges = build_exchanges(EXCHANGES)
-    asyncio.run(run_fake_ws(exchanges))
+    await run_fake_ws(exchanges)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
