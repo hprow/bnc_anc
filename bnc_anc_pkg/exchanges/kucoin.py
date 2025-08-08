@@ -8,7 +8,8 @@ from ..decision import BTC_ALIAS
 
 KC_BASE = "https://api-futures.kucoin.com"
 ST_ORDERS_PATH = "/api/v1/st-orders"
-POSITION_TPSL_PATH = "/api/v1/position/take-profit-stop-loss"
+# Endpoint for adding take profit and stop loss orders to an existing position
+POSITION_TPSL_PATH = "/api/v1/position/tpsl"
 CONTRACT_DETAIL = "/api/v1/contracts/{symbol}"
 MARK_PRICE_PATH = "/api/v1/mark-price/{symbol}/current"
 TICKER_PATH = "/api/v1/ticker"
@@ -156,21 +157,18 @@ class KuCoinFuturesClient(ExchangeClient):
         if side.lower() == "buy":
             tp_price = _round_up_to_tick(tp_raw, tick)
             sl_price = _round_down_to_tick(sl_raw, tick)
-            pos_side = "long"
+            tpsl_side = "sell"
         else:
             tp_price = _round_down_to_tick(tp_raw, tick)
             sl_price = _round_up_to_tick(sl_raw, tick)
-            pos_side = "short"
+            tpsl_side = "buy"
 
         tp_sl_req = {
             "symbol": symbol,
-            "side": pos_side,
-            "tpTriggerPrice": tp_price,
-            "tpOrderPrice": tp_price,
-            "tpOrderType": "limit",
-            "slTriggerPrice": sl_price,
-            "slOrderPrice": sl_price,
-            "slOrderType": "market",
+            "side": tpsl_side,
+            "takeProfitPrice": tp_price,
+            "stopLossPrice": sl_price,
+            "leverage": leverage,
         }
 
         await self._req("POST", POSITION_TPSL_PATH, j=tp_sl_req)
