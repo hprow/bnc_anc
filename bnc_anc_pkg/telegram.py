@@ -1,8 +1,8 @@
 import requests
-from .config import TG_TOKEN, TG_CHAT_ID
+from .config import TG_TOKEN, TG_CHAT_ID, TEST_MODE
 
 def push_telegram(text: str) -> None:
-    if not TG_TOKEN or not TG_CHAT_ID:
+    if TEST_MODE or not TG_TOKEN or not TG_CHAT_ID:
         return
     try:
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"

@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -26,8 +27,7 @@ async def _fake_client(uri, exchanges):
         await handle_payload(payload, exchanges)
 
 
-async def run_fake_ws():
-    exchanges = build_exchanges()
+async def run_fake_ws(exchanges):
     server = await websockets.serve(_fake_server, "127.0.0.1", 8765)
     try:
         await _fake_client("ws://127.0.0.1:8765", exchanges)
@@ -37,4 +37,14 @@ async def run_fake_ws():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_fake_ws())
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--exchange",
+        dest="exchanges",
+        action="append",
+        default=[],
+        help="Exchange to enable (can be used multiple times)",
+    )
+    args = parser.parse_args()
+    exchanges = build_exchanges(args.exchanges or None)
+    asyncio.run(run_fake_ws(exchanges))
