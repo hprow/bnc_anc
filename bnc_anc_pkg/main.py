@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List
+from typing import List, Optional
 
 from .config import (
     BINANCE_API_KEY,
@@ -22,13 +22,23 @@ from dataclasses import asdict
 log = logging.getLogger(__name__)
 
 
-def build_exchanges() -> List[ExchangeClient]:
+def build_exchanges(enabled: Optional[List[str]] = None) -> List[ExchangeClient]:
     exchanges: List[ExchangeClient] = []
-    if TEST_MODE:
-        exchanges.append(NoOpExchange())
-        return exchanges
-    if KC_KEY and KC_SECRET and KC_PASSPHRASE:
-        exchanges.append(KuCoinFuturesClient(KC_KEY, KC_SECRET, KC_PASSPHRASE, KC_KEY_VERSION))
+    enabled = enabled or (["noop"] if TEST_MODE else [])
+    for name in enabled:
+        if name == "noop":
+            exchanges.append(NoOpExchange())
+        elif name == "kucoin":
+            if KC_KEY and KC_SECRET and KC_PASSPHRASE:
+                exchanges.append(
+                    KuCoinFuturesClient(KC_KEY, KC_SECRET, KC_PASSPHRASE, KC_KEY_VERSION)
+                )
+        else:
+            raise ValueError(f"Unknown exchange: {name}")
+    if not TEST_MODE and not enabled and KC_KEY and KC_SECRET and KC_PASSPHRASE:
+        exchanges.append(
+            KuCoinFuturesClient(KC_KEY, KC_SECRET, KC_PASSPHRASE, KC_KEY_VERSION)
+        )
     return exchanges
 
 
