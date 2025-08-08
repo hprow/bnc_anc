@@ -8,6 +8,16 @@ from .base import ExchangeClient
 
 MEXC_BASE = "https://api.mexc.com"
 
+
+def _calc_tp_sl(ref_price: float, side: str, tp_pct: float, sl_pct: float) -> tuple[float, float]:
+    s = side.lower()
+    if s == "buy":
+        return ref_price * (1 + tp_pct / 100.0), ref_price * (1 - sl_pct / 100.0)
+    if s == "sell":
+        return ref_price * (1 - tp_pct / 100.0), ref_price * (1 + sl_pct / 100.0)
+    raise ValueError("side must be 'buy' or 'sell'")
+
+
 class MexcSpotClient(ExchangeClient):
     name = "mexc"
     market = "spot"
@@ -54,6 +64,57 @@ class MexcSpotClient(ExchangeClient):
         }
         self._sign(params)
         order = await self._req("POST", "/api/v3/order", params)
-        # in real impl we'd wait for fill and then place tp/sl orders using average price
-        await asyncio.sleep(0)
-        return order
+        oid = order.get("orderId")
+        qty = float(order.get("executedQty") or 0)
+        price = float(
+            order.get("avgPrice")
+            or (float(order.get("cummulativeQuoteQty") or 0) / qty if qty else 0)
+        )
+        if order.get("status") != "FILLED" or not price:
+            for _ in range(10):
+                await asyncio.sleep(0.1)
+                qs = {"symbol": symbol, "orderId": oid, "timestamp": int(time.time() * 1000)}
+                self._sign(qs)
+                info = await self._req("GET", "/api/v3/order", qs)
+                if info.get("status") == "FILLED":
+                    qty = float(info.get("executedQty") or 0)
+                    price = float(
+                        info.get("avgPrice")
+                        or (
+                            float(info.get("cummulativeQuoteQty") or 0) / qty if qty else 0
+                        )
+                    )
+                    break
+            if not price:
+                raise RuntimeError("entry price not found for order")
+
+        tp_price, sl_price = _calc_tp_sl(price, side, tp_pct, sl_pct)
+        opp_side = "SELL" if side.lower() == "buy" else "BUY"
+        qty_str = str(qty)
+
+        tp_params = {
+            "symbol": symbol,
+            "side": opp_side,
+            "type": "TAKE_PROFIT_LIMIT",
+            "quantity": qty_str,
+            "price": f"{tp_price}",
+            "stopPrice": f"{tp_price}",
+            "timeInForce": "GTC",
+            "timestamp": int(time.time() * 1000),
+        }
+        self._sign(tp_params)
+        await self._req("POST", "/api/v3/order", tp_params)
+
+        sl_params = {
+            "symbol": symbol,
+            "side": opp_side,
+            "type": "STOP_LOSS_LIMIT",
+            "quantity": qty_str,
+            "price": f"{sl_price}",
+            "stopPrice": f"{sl_price}",
+            "timeInForce": "GTC",
+            "timestamp": int(time.time() * 1000),
+        }
+        self._sign(sl_params)
+        await self._req("POST", "/api/v3/order", sl_params)
+        return {"tp": tp_price, "sl": sl_price}
