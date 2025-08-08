@@ -2,12 +2,12 @@
   "stop_price_type": "MP",
   "min_ticks_gap": 1,
   "margin_mode": "ISOLATED",
-  "test_mode": false,
+  "test_mode": true,
   "trading": {
     "kucoin": {
       "futures": {
         "long": {"notional": 100, "leverage": 5, "tp_pct": 1.0, "sl_pct": 0.6},
-        "short": {"notional": 100, "leverage": 5, "tp_pct": 1.0, "sl_pct": 0.6}
+        "short": {"notional": 100, "leverage": 5, "tp_pct": 7.0, "sl_pct": 3.0}
       }
     },
     "mexc": {
@@ -25,6 +25,6 @@
   },
   "decision": {
     "listing": {"side": "long", "exchanges": ["noop"]},
-    "delisting": {"side": "short", "exchanges": ["noop"]}
+    "delisting": {"side": "short", "exchanges": ["kucoin"]}
   }
 }

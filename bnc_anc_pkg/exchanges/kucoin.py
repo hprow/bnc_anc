@@ -142,12 +142,13 @@ class KuCoinFuturesClient(ExchangeClient):
 
         # determine entry price from open position before placing tp/sl
         ref_price = 0.0
-        for _ in range(10):
+        await asyncio.sleep(0.2)
+        for _ in range(60):
             pos = await self.get_position(symbol)
             ref_price = float(pos.get("avgEntryPrice") or pos.get("entryPrice") or 0)
             if ref_price:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
         if not ref_price:
             raise RuntimeError("entry price not found for position")
         tp_raw, sl_raw = _calc_raw_tp_sl(ref_price, side, tp_pct, sl_pct)

@@ -13,8 +13,8 @@ KC_PASSPHRASE = os.getenv("KC_PASSPHRASE")
 KC_KEY_VERSION = os.getenv("KC_KEY_VERSION", "3")
 MEXC_KEY = os.getenv("MEXC_KEY")
 MEXC_SECRET = os.getenv("MEXC_SECRET")
-
-CONFIG_FILE = os.getenv("CONFIG_FILE", "config.json")
+config_path = os.path.join(os.path.abspath(os.path.dirname(__name__)), "config.json")
+CONFIG_FILE = os.getenv("CONFIG_FILE", config_path)
 try:
     with open(CONFIG_FILE) as f:
         _conf = json.load(f)

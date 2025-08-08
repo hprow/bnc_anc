@@ -12,7 +12,7 @@ from bnc_anc_pkg.main import build_exchanges
 
 
 # exchanges to enable for testing
-EXCHANGES = ["noop"]
+EXCHANGES = ["kucoin"]
 
 
 async def _fake_server(websocket):
