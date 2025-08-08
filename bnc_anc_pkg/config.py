@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -10,6 +10,8 @@ KC_KEY = os.getenv("KC_KEY")
 KC_SECRET = os.getenv("KC_SECRET")
 KC_PASSPHRASE = os.getenv("KC_PASSPHRASE")
 KC_KEY_VERSION = os.getenv("KC_KEY_VERSION", "3")
+MEXC_KEY = os.getenv("MEXC_KEY")
+MEXC_SECRET = os.getenv("MEXC_SECRET")
 
 STOP_PRICE_TYPE = os.getenv("STOP_PRICE_TYPE", "MP")
 MIN_TICKS_GAP = int(os.getenv("MIN_TICKS_GAP", "1"))
@@ -36,6 +38,12 @@ class MarketConfig:
     short: PositionConfig
 
 
+@dataclass
+class DecisionConfig:
+    side: str
+    exchanges: List[str]
+
+
 def _pos_cfg(prefix: str) -> PositionConfig:
     notional = float(os.getenv(f"{prefix}_NOTIONAL", "100"))
     lev = os.getenv(f"{prefix}_LEVERAGE", "5")
@@ -52,10 +60,28 @@ TRADING_CONFIG: Dict[str, Dict[str, MarketConfig]] = {
             short=_pos_cfg("KC_FUT_SHORT"),
         )
     },
+    "mexc": {
+        "spot": MarketConfig(
+            long=_pos_cfg("MEXC_SPOT_LONG"),
+            short=_pos_cfg("MEXC_SPOT_SHORT"),
+        )
+    },
     "noop": {
         "futures": MarketConfig(
             long=_pos_cfg("NOOP_FUT_LONG"),
             short=_pos_cfg("NOOP_FUT_SHORT"),
         )
     },
+}
+
+
+DECISION_CONFIG: Dict[str, DecisionConfig] = {
+    "listing": DecisionConfig(
+        side=os.getenv("LISTING_SIDE", "long"),
+        exchanges=[e for e in os.getenv("LISTING_EXCHANGES", "noop").split(",") if e],
+    ),
+    "delisting": DecisionConfig(
+        side=os.getenv("DELISTING_SIDE", "short"),
+        exchanges=[e for e in os.getenv("DELISTING_EXCHANGES", "noop").split(",") if e],
+    ),
 }
