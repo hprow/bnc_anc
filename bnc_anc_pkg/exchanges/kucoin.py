@@ -8,6 +8,7 @@ from ..decision import BTC_ALIAS
 
 KC_BASE = "https://api-futures.kucoin.com"
 ST_ORDERS_PATH = "/api/v1/st-orders"
+POSITION_TPSL_PATH = "/api/v1/position/take-profit-stop-loss"
 CONTRACT_DETAIL = "/api/v1/contracts/{symbol}"
 MARK_PRICE_PATH = "/api/v1/mark-price/{symbol}/current"
 TICKER_PATH = "/api/v1/ticker"
@@ -155,54 +156,22 @@ class KuCoinFuturesClient(ExchangeClient):
         if side.lower() == "buy":
             tp_price = _round_up_to_tick(tp_raw, tick)
             sl_price = _round_down_to_tick(sl_raw, tick)
-            tp_req = {
-                "clientOid": str(uuid.uuid4()),
-                "side": "sell",
-                "symbol": symbol,
-                "type": "market",
-                "stopPriceType": "MP",
-                "stop": "up",
-                "stopPrice": tp_price,
-                "reduceOnly": True,
-                "closeOrder": True,
-            }
-            sl_req = {
-                "clientOid": str(uuid.uuid4()),
-                "side": "sell",
-                "symbol": symbol,
-                "type": "market",
-                "stopPriceType": "MP",
-                "stop": "down",
-                "stopPrice": sl_price,
-                "reduceOnly": True,
-                "closeOrder": True,
-            }
+            pos_side = "long"
         else:
             tp_price = _round_down_to_tick(tp_raw, tick)
             sl_price = _round_up_to_tick(sl_raw, tick)
-            tp_req = {
-                "clientOid": str(uuid.uuid4()),
-                "side": "buy",
-                "symbol": symbol,
-                "type": "market",
-                "stopPriceType": "MP",
-                "stop": "down",
-                "stopPrice": tp_price,
-                "reduceOnly": True,
-                "closeOrder": True,
-            }
-            sl_req = {
-                "clientOid": str(uuid.uuid4()),
-                "side": "buy",
-                "symbol": symbol,
-                "type": "market",
-                "stopPriceType": "MP",
-                "stop": "up",
-                "stopPrice": sl_price,
-                "reduceOnly": True,
-                "closeOrder": True,
-            }
+            pos_side = "short"
 
-        await self._req("POST", ST_ORDERS_PATH, j=tp_req)
-        await self._req("POST", ST_ORDERS_PATH, j=sl_req)
+        tp_sl_req = {
+            "symbol": symbol,
+            "side": pos_side,
+            "tpTriggerPrice": tp_price,
+            "tpOrderPrice": tp_price,
+            "tpOrderType": "limit",
+            "slTriggerPrice": sl_price,
+            "slOrderPrice": sl_price,
+            "slOrderType": "market",
+        }
+
+        await self._req("POST", POSITION_TPSL_PATH, j=tp_sl_req)
         return {"tp": tp_price, "sl": sl_price}
