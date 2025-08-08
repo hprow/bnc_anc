@@ -10,6 +10,7 @@ ST_ORDERS_PATH = "/api/v1/st-orders"
 CONTRACT_DETAIL = "/api/v1/contracts/{symbol}"
 MARK_PRICE_PATH = "/api/v1/mark-price/{symbol}/current"
 TICKER_PATH = "/api/v1/ticker"
+POSITIONS_PATH = "/api/v1/positions"
 
 
 def _round_down_to_tick(px: float, tick: float) -> str:
@@ -105,6 +106,12 @@ class KuCoinFuturesClient(ExchangeClient):
         d = (await self._req("GET", TICKER_PATH, params={"symbol": symbol}))["data"]
         return float(d.get("price") or d.get("lastTradedPrice") or d.get("indexPrice"))
 
+    async def get_position(self, symbol: str) -> Dict[str, Any]:
+        d = (await self._req("GET", POSITIONS_PATH, params={"symbol": symbol}))["data"]
+        if isinstance(d, list):
+            return d[0] if d else {}
+        return d or {}
+
     async def trade(self, *, symbol: str, side: str, notional: float, tp_pct: float, sl_pct: float, leverage: int):
         spec = await self.get_contract(symbol)
         tick = float(spec.get("tickSize") or 0.01)
@@ -141,9 +148,16 @@ class KuCoinFuturesClient(ExchangeClient):
             body_s["size"] = lots
             await self._req("POST", ST_ORDERS_PATH, j=body_s)
 
-        # wait for fill then set tp/sl based on last price
-        await asyncio.sleep(0)
-        ref_price = await self.get_last_price(symbol)
+        # determine entry price from open position before placing tp/sl
+        ref_price = 0.0
+        for _ in range(10):
+            pos = await self.get_position(symbol)
+            ref_price = float(pos.get("avgEntryPrice") or pos.get("entryPrice") or 0)
+            if ref_price:
+                break
+            await asyncio.sleep(0.2)
+        if not ref_price:
+            raise RuntimeError("entry price not found for position")
         tp_raw, sl_raw = _calc_raw_tp_sl(ref_price, side, tp_pct, sl_pct)
         if side.lower() == "buy":
             tp_price = _round_up_to_tick(tp_raw, tick)
