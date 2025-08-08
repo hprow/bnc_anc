@@ -37,16 +37,28 @@ def _bases_from_delist(title: str) -> Set[str]:
     return out
 
 
-def decide_trade_from_title(title: str) -> Tuple[str, List[str]]:
+def decide_event_from_title(title: str) -> Tuple[str, List[str]]:
     if not title:
         return "none", []
     tl = title.lower()
     if "will delist" in tl or re.search(r"\bdelist\b", tl):
         bases = _bases_from_delist(title)
-        return ("short", sorted(bases)) if bases else ("none", [])
-    if any(k in tl for k in ("will add", "will list", "will be available", "will launch", "futures will launch")):
+        return ("delisting", sorted(bases)) if bases else ("none", [])
+    if any(
+        k in tl
+        for k in (
+            "will add",
+            "will list",
+            "will be available",
+            "will launch",
+            "futures will launch",
+        )
+    ):
         bases = set()
         bases |= _bases_from_parentheses(title)
         bases |= _bases_from_usdt_pairs(title)
-        return ("long", sorted(bases)) if bases else ("none", [])
+        return ("listing", sorted(bases)) if bases else ("none", [])
     return "none", []
+
+# backwards compatibility
+decide_trade_from_title = decide_event_from_title

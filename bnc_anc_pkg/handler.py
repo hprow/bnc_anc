@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from typing import List
 import logging
 
-from .config import CATALOG_FILTER, TRADING_CONFIG, STOP_PRICE_TYPE
-from .decision import decide_trade_from_title
+from .config import CATALOG_FILTER, TRADING_CONFIG, DECISION_CONFIG, STOP_PRICE_TYPE
+from .decision import decide_event_from_title
 from .telegram import push_telegram
 from .exchanges.base import ExchangeClient
 
@@ -26,21 +26,29 @@ async def handle_payload(payload: dict, exchanges: List[ExchangeClient]):
         push_telegram(msg)
         return
 
-    decision, bases = decide_trade_from_title(title)
+    decision, bases = decide_event_from_title(title)
     if decision == "none" or not bases:
         msg = f"[received at: {recv_ts}] {title}: NO TRADING DECISION"
         push_telegram(msg)
         return
 
-    side = "buy" if decision == "long" else "sell"
+    rule = DECISION_CONFIG.get(decision)
+    if not rule:
+        msg = f"[received at: {recv_ts}] {title}: decision '{decision}' not configured"
+        push_telegram(msg)
+        return
+
+    side = "buy" if rule.side == "long" else "sell"
 
     tasks = []
     for base in bases:
         for ex in exchanges:
+            if ex.name not in rule.exchanges:
+                continue
             cfg = TRADING_CONFIG.get(ex.name, {}).get(ex.market)
             if not cfg:
                 continue
-            pos_cfg = cfg.long if decision == "long" else cfg.short
+            pos_cfg = cfg.long if rule.side == "long" else cfg.short
             symbol = ex.symbol_from_base(base)
             tasks.append(
                 (
@@ -66,7 +74,7 @@ async def handle_payload(payload: dict, exchanges: List[ExchangeClient]):
             await task
             elapsed = int((time.perf_counter() - start_perf) * 1000)
             messages.append(
-                f"✅ {decision.upper()} {symbol} on {ex.name}\n"
+                f"✅ {rule.side.upper()} {symbol} on {ex.name}\n"
                 f"Nominal≈${pcfg.notional} Lev={pcfg.leverage}x TP={pcfg.tp_pct}% SL={pcfg.sl_pct}% Ref={STOP_PRICE_TYPE}\n"
                 f"Title: {title}\n"
                 f"ReceivedAt: {recv_ts}\n"
@@ -76,7 +84,7 @@ async def handle_payload(payload: dict, exchanges: List[ExchangeClient]):
         except Exception as e:
             elapsed = int((time.perf_counter() - start_perf) * 1000)
             messages.append(
-                f"❌ {decision.upper()} {symbol} on {ex.name} failed\n"
+                f"❌ {rule.side.upper()} {symbol} on {ex.name} failed\n"
                 f"{e}\n"
                 f"Nominal≈${pcfg.notional} Lev={pcfg.leverage}x TP={pcfg.tp_pct}% SL={pcfg.sl_pct}% Ref={STOP_PRICE_TYPE}\n"
                 f"Title: {title}\n"

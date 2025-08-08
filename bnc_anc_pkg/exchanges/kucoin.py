@@ -1,4 +1,4 @@
-import json, hmac, hashlib, time, uuid, base64
+import json, hmac, hashlib, time, uuid, base64, asyncio
 from typing import Optional, Dict, Any, Tuple
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 import aiohttp
@@ -10,6 +10,7 @@ ST_ORDERS_PATH = "/api/v1/st-orders"
 CONTRACT_DETAIL = "/api/v1/contracts/{symbol}"
 MARK_PRICE_PATH = "/api/v1/mark-price/{symbol}/current"
 TICKER_PATH = "/api/v1/ticker"
+POSITIONS_PATH = "/api/v1/positions"
 
 
 def _round_down_to_tick(px: float, tick: float) -> str:
@@ -105,60 +106,83 @@ class KuCoinFuturesClient(ExchangeClient):
         d = (await self._req("GET", TICKER_PATH, params={"symbol": symbol}))["data"]
         return float(d.get("price") or d.get("lastTradedPrice") or d.get("indexPrice"))
 
+    async def get_position(self, symbol: str) -> Dict[str, Any]:
+        d = (await self._req("GET", POSITIONS_PATH, params={"symbol": symbol}))["data"]
+        if isinstance(d, list):
+            return d[0] if d else {}
+        return d or {}
+
     async def trade(self, *, symbol: str, side: str, notional: float, tp_pct: float, sl_pct: float, leverage: int):
         spec = await self.get_contract(symbol)
         tick = float(spec.get("tickSize") or 0.01)
-        mult = float(spec.get("multiplier") or 0.0)
-        lotmin = int(spec.get("lotSize") or 1)
-
-        mark, index = await self.get_mark_index(symbol)
-        ref = mark
-        tp_raw, sl_raw = _calc_raw_tp_sl(ref, side, tp_pct, sl_pct)
-        if side.lower() == "buy":
-            tp_price = _round_up_to_tick(tp_raw, tick)
-            sl_price = _round_down_to_tick(sl_raw, tick)
-            if float(tp_price) <= ref:
-                tp_price = _round_up_to_tick(ref + tick, tick)
-            if float(sl_price) >= ref:
-                sl_price = _round_down_to_tick(ref - tick, tick)
-            up_price, down_price = tp_price, sl_price
-        else:
-            tp_price = _round_down_to_tick(tp_raw, tick)
-            sl_price = _round_up_to_tick(sl_raw, tick)
-            if float(tp_price) >= ref:
-                tp_price = _round_down_to_tick(ref - tick, tick)
-            if float(sl_price) <= ref:
-                sl_price = _round_up_to_tick(ref + tick, tick)
-            up_price, down_price = sl_price, tp_price
-
         base = {
             "clientOid": str(uuid.uuid4()),
             "side": side,
             "symbol": symbol,
             "type": "market",
             "marginMode": "ISOLATED",
-            "stopPriceType": "MP",
-            "triggerStopUpPrice": up_price,
-            "triggerStopDownPrice": down_price,
             "reduceOnly": False,
             "closeOrder": False,
             "leverage": leverage,
         }
         body_v = dict(base)
         body_v["valueQty"] = str(notional)
-        try:
-            return (await self._req("POST", ST_ORDERS_PATH, j=body_v))["data"]
-        except Exception as e:
-            emsg = str(e).lower()
-            if not any(k in emsg for k in ("invalid", "quantity", "parameter", "valueqty")):
-                raise
+        await self._req("POST", ST_ORDERS_PATH, j=body_v)
 
-        px = ref or await self.get_last_price(symbol)
-        if mult <= 0:
-            raise RuntimeError(f"Contract multiplier missing for {symbol}")
-        lots = int((float(notional) / (px * mult)) // 1)
-        if lots < lotmin:
-            raise ValueError(f"Notional ${notional} -> {lots} lot(s) < min {lotmin} at px={px}, mult={mult}")
-        body_s = dict(base)
-        body_s["size"] = lots
-        return (await self._req("POST", ST_ORDERS_PATH, j=body_s))["data"]
+        # determine entry price from open position before placing tp/sl
+        ref_price = 0.0
+        for _ in range(10):
+            pos = await self.get_position(symbol)
+            ref_price = float(pos.get("avgEntryPrice") or pos.get("entryPrice") or 0)
+            if ref_price:
+                break
+            await asyncio.sleep(0.1)
+        if not ref_price:
+            raise RuntimeError("entry price not found for position")
+        tp_raw, sl_raw = _calc_raw_tp_sl(ref_price, side, tp_pct, sl_pct)
+        if side.lower() == "buy":
+            tp_price = _round_up_to_tick(tp_raw, tick)
+            sl_price = _round_down_to_tick(sl_raw, tick)
+            tp_req = {
+                "clientOid": str(uuid.uuid4()),
+                "side": "sell",
+                "symbol": symbol,
+                "type": "market",
+                "stopPriceType": "MP",
+                "triggerStopUpPrice": tp_price,
+                "reduceOnly": True,
+            }
+            sl_req = {
+                "clientOid": str(uuid.uuid4()),
+                "side": "sell",
+                "symbol": symbol,
+                "type": "market",
+                "stopPriceType": "MP",
+                "triggerStopDownPrice": sl_price,
+                "reduceOnly": True,
+            }
+        else:
+            tp_price = _round_down_to_tick(tp_raw, tick)
+            sl_price = _round_up_to_tick(sl_raw, tick)
+            tp_req = {
+                "clientOid": str(uuid.uuid4()),
+                "side": "buy",
+                "symbol": symbol,
+                "type": "market",
+                "stopPriceType": "MP",
+                "triggerStopDownPrice": tp_price,
+                "reduceOnly": True,
+            }
+            sl_req = {
+                "clientOid": str(uuid.uuid4()),
+                "side": "buy",
+                "symbol": symbol,
+                "type": "market",
+                "stopPriceType": "MP",
+                "triggerStopUpPrice": sl_price,
+                "reduceOnly": True,
+            }
+
+        await self._req("POST", ST_ORDERS_PATH, j=tp_req)
+        await self._req("POST", ST_ORDERS_PATH, j=sl_req)
+        return {"tp": tp_price, "sl": sl_price}
