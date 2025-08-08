@@ -96,9 +96,15 @@ class KuCoinFuturesClient(ExchangeClient):
             if r.status < 200 or r.status >= 300:
                 raise RuntimeError(f"{r.status} {r.reason}. Body={txt}")
             try:
-                return json.loads(txt)
+                data = json.loads(txt)
             except Exception:
                 return txt
+            if isinstance(data, dict):
+                code = data.get("code")
+                if code is not None and str(code) != "200000":
+                    msg = data.get("msg") or data.get("message")
+                    raise RuntimeError(f"KuCoin API error {code}: {msg}")
+            return data
 
     async def get_contract(self, symbol: str) -> Dict[str, Any]:
         return (await self._req("GET", CONTRACT_DETAIL.replace("{symbol}", symbol)))["data"]
@@ -154,8 +160,10 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopUpPrice": tp_price,
+                "stop": "up",
+                "stopPrice": tp_price,
                 "reduceOnly": True,
+                "closeOrder": True,
             }
             sl_req = {
                 "clientOid": str(uuid.uuid4()),
@@ -163,8 +171,10 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopDownPrice": sl_price,
+                "stop": "down",
+                "stopPrice": sl_price,
                 "reduceOnly": True,
+                "closeOrder": True,
             }
         else:
             tp_price = _round_down_to_tick(tp_raw, tick)
@@ -175,8 +185,10 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopDownPrice": tp_price,
+                "stop": "down",
+                "stopPrice": tp_price,
                 "reduceOnly": True,
+                "closeOrder": True,
             }
             sl_req = {
                 "clientOid": str(uuid.uuid4()),
@@ -184,8 +196,10 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopUpPrice": sl_price,
+                "stop": "up",
+                "stopPrice": sl_price,
                 "reduceOnly": True,
+                "closeOrder": True,
             }
 
         await self._req("POST", ST_ORDERS_PATH, j=tp_req)
