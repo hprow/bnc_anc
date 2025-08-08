@@ -115,11 +115,6 @@ class KuCoinFuturesClient(ExchangeClient):
     async def trade(self, *, symbol: str, side: str, notional: float, tp_pct: float, sl_pct: float, leverage: int):
         spec = await self.get_contract(symbol)
         tick = float(spec.get("tickSize") or 0.01)
-        mult = float(spec.get("multiplier") or 0.0)
-        lotmin = int(spec.get("lotSize") or 1)
-
-        mark, index = await self.get_mark_index(symbol)
-        ref = mark
         base = {
             "clientOid": str(uuid.uuid4()),
             "side": side,
@@ -132,21 +127,7 @@ class KuCoinFuturesClient(ExchangeClient):
         }
         body_v = dict(base)
         body_v["valueQty"] = str(notional)
-        try:
-            await self._req("POST", ST_ORDERS_PATH, j=body_v)
-        except Exception as e:
-            emsg = str(e).lower()
-            if not any(k in emsg for k in ("invalid", "quantity", "parameter", "valueqty")):
-                raise
-            px = ref or await self.get_last_price(symbol)
-            if mult <= 0:
-                raise RuntimeError(f"Contract multiplier missing for {symbol}")
-            lots = int((float(notional) / (px * mult)) // 1)
-            if lots < lotmin:
-                raise ValueError(f"Notional ${notional} -> {lots} lot(s) < min {lotmin} at px={px}, mult={mult}")
-            body_s = dict(base)
-            body_s["size"] = lots
-            await self._req("POST", ST_ORDERS_PATH, j=body_s)
+        await self._req("POST", ST_ORDERS_PATH, j=body_v)
 
         # determine entry price from open position before placing tp/sl
         ref_price = 0.0
@@ -155,7 +136,7 @@ class KuCoinFuturesClient(ExchangeClient):
             ref_price = float(pos.get("avgEntryPrice") or pos.get("entryPrice") or 0)
             if ref_price:
                 break
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)
         if not ref_price:
             raise RuntimeError("entry price not found for position")
         tp_raw, sl_raw = _calc_raw_tp_sl(ref_price, side, tp_pct, sl_pct)
