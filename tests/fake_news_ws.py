@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import json
 import os
@@ -10,6 +9,10 @@ import websockets
 
 from bnc_anc_pkg.handler import handle_payload
 from bnc_anc_pkg.main import build_exchanges
+
+
+# exchanges to enable for testing
+EXCHANGES = ["noop"]
 
 
 async def _fake_server(websocket):
@@ -36,15 +39,10 @@ async def run_fake_ws(exchanges):
         await server.wait_closed()
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--exchange",
-        dest="exchanges",
-        action="append",
-        default=[],
-        help="Exchange to enable (can be used multiple times)",
-    )
-    args = parser.parse_args()
-    exchanges = build_exchanges(args.exchanges or None)
+def main():
+    exchanges = build_exchanges(EXCHANGES)
     asyncio.run(run_fake_ws(exchanges))
+
+
+if __name__ == "__main__":
+    main()
