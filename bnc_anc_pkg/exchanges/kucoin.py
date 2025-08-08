@@ -160,7 +160,8 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopUpPrice": tp_price,
+                "stop": "up",
+                "stopPrice": tp_price,
                 "reduceOnly": True,
                 "closeOrder": True,
             }
@@ -170,7 +171,8 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopDownPrice": sl_price,
+                "stop": "down",
+                "stopPrice": sl_price,
                 "reduceOnly": True,
                 "closeOrder": True,
             }
@@ -183,7 +185,8 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopDownPrice": tp_price,
+                "stop": "down",
+                "stopPrice": tp_price,
                 "reduceOnly": True,
                 "closeOrder": True,
             }
@@ -193,7 +196,8 @@ class KuCoinFuturesClient(ExchangeClient):
                 "symbol": symbol,
                 "type": "market",
                 "stopPriceType": "MP",
-                "triggerStopUpPrice": sl_price,
+                "stop": "up",
+                "stopPrice": sl_price,
                 "reduceOnly": True,
                 "closeOrder": True,
             }
