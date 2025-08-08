@@ -2,6 +2,7 @@ import json, hmac, hashlib, time, uuid, base64, asyncio
 from typing import Optional, Dict, Any, Tuple
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 import aiohttp
+from urllib.parse import urlencode
 from .base import ExchangeClient
 from ..decision import BTC_ALIAS
 
@@ -84,7 +85,11 @@ class KuCoinFuturesClient(ExchangeClient):
 
     async def _req(self, method: str, path: str, j: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, str]] = None) -> Any:
         body = json.dumps(j, separators=(",", ":")) if j else ""
-        headers = self._sign(method, path, body)
+        endpoint = path
+        if params:
+            qs = urlencode(params)
+            endpoint = f"{path}?{qs}"
+        headers = self._sign(method, endpoint, body)
         url = KC_BASE + path
         async with self.session.request(method, url, data=body if j else None, headers=headers, params=params) as r:
             txt = await r.text()
