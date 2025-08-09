@@ -1,4 +1,4 @@
-import json, hmac, hashlib, time, uuid, base64, asyncio
+import json, hmac, hashlib, time, uuid, base64, asyncio, contextlib
 from typing import Optional, Dict, Any, Tuple
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 import aiohttp
@@ -12,6 +12,8 @@ CONTRACT_DETAIL = "/api/v1/contracts/{symbol}"
 MARK_PRICE_PATH = "/api/v1/mark-price/{symbol}/current"
 TICKER_PATH = "/api/v1/ticker"
 POSITIONS_PATH = "/api/v1/positions"
+CANCEL_ORDER_PATH = "/api/v1/orders/{order_id}"
+BULLET_PRIVATE = "/api/v1/bullet-private"
 
 
 def _round_down_to_tick(px: float, tick: float) -> str:
@@ -53,9 +55,19 @@ class KuCoinFuturesClient(ExchangeClient):
             timeout=to,
             connector=aiohttp.TCPConnector(limit=128, ttl_dns_cache=300, ssl=True, keepalive_timeout=30),
         )
+        # websocket session for private order updates
+        self.ws_session = aiohttp.ClientSession()
+        self._ws_task: Optional[asyncio.Task] = None
+        # map order_id -> sibling order_id for tp/sl pairs
+        self._order_pairs: Dict[str, str] = {}
 
     async def close(self):
         await self.session.close()
+        await self.ws_session.close()
+        if self._ws_task:
+            self._ws_task.cancel()
+            with contextlib.suppress(Exception):
+                await self._ws_task
 
     def symbol_from_base(self, base: str) -> str:
         base = base.upper()
@@ -123,6 +135,58 @@ class KuCoinFuturesClient(ExchangeClient):
             return d[0] if d else {}
         return d or {}
 
+    async def cancel_order(self, order_id: str):
+        path = CANCEL_ORDER_PATH.replace("{order_id}", order_id)
+        await self._req("DELETE", path)
+
+    async def _get_ws_url(self) -> Tuple[str, float]:
+        """Get websocket URL and ping interval."""
+        data = await self._req("POST", BULLET_PRIVATE)
+        srv = data["data"]["instanceServers"][0]
+        token = data["data"]["token"]
+        endpoint = srv["endpoint"]
+        ping_interval = float(srv.get("pingInterval", 20000)) / 1000.0
+        return f"{endpoint}?token={token}", ping_interval
+
+    async def _ensure_ws(self):
+        if self._ws_task and not self._ws_task.done():
+            return
+        self._ws_task = asyncio.create_task(self._watch_orders_ws())
+
+    async def _watch_orders_ws(self):
+        """Background websocket listener to cancel sibling orders."""
+        while True:
+            try:
+                url, ping_interval = await self._get_ws_url()
+                async with self.ws_session.ws_connect(url, heartbeat=ping_interval) as ws:
+                    sub = {
+                        "id": str(uuid.uuid4()),
+                        "type": "subscribe",
+                        "topic": "/contractMarket/tradeOrders",
+                        "privateChannel": True,
+                    }
+                    await ws.send_json(sub)
+                    async for msg in ws:
+                        if msg.type != aiohttp.WSMsgType.TEXT:
+                            continue
+                        try:
+                            data = json.loads(msg.data)
+                        except Exception:
+                            continue
+                        if data.get("topic") != "/contractMarket/tradeOrders":
+                            continue
+                        od = data.get("data") or {}
+                        oid = od.get("orderId")
+                        status = (od.get("status") or "").lower()
+                        if not oid or status not in {"done", "filled", "match", "cancelled", "canceled"}:
+                            continue
+                        other = self._order_pairs.pop(oid, None)
+                        if other:
+                            await self.cancel_order(other)
+                            self._order_pairs.pop(other, None)
+            except Exception:
+                await asyncio.sleep(1)
+
     async def trade(self, *, symbol: str, side: str, notional: float, tp_pct: float, sl_pct: float, leverage: int):
         spec = await self.get_contract(symbol)
         tick = float(spec.get("tickSize") or 0.01)
@@ -156,22 +220,47 @@ class KuCoinFuturesClient(ExchangeClient):
             tp_price = _round_up_to_tick(tp_raw, tick)
             sl_price = _round_down_to_tick(sl_raw, tick)
             tpsl_side = "sell"
-            tp_field, sl_field = "triggerStopUpPrice", "triggerStopDownPrice"
         else:
             tp_price = _round_down_to_tick(tp_raw, tick)
             sl_price = _round_up_to_tick(sl_raw, tick)
             tpsl_side = "buy"
-            tp_field, sl_field = "triggerStopDownPrice", "triggerStopUpPrice"
 
-        tp_sl_req = {
+        # determine position size for closing orders
+        qty = float(pos.get("currentQty") or pos.get("pos") or pos.get("size") or 0)
+        qty = abs(qty)
+        if not qty:
+            raise RuntimeError("position size not found")
+
+        tp_req = {
             "clientOid": str(uuid.uuid4()),
             "symbol": symbol,
             "side": tpsl_side,
+            "type": "limit",
+            "price": tp_price,
+            "size": str(qty),
             "closeOrder": True,
-            "stopPriceType": "TP",
-            tp_field: tp_price,
-            sl_field: sl_price,
+            "reduceOnly": True,
         }
 
-        await self._req("POST", ST_ORDERS_PATH, j=tp_sl_req)
+        sl_req = {
+            "clientOid": str(uuid.uuid4()),
+            "symbol": symbol,
+            "side": tpsl_side,
+            "type": "limit",
+            "price": sl_price,
+            "size": str(qty),
+            "closeOrder": True,
+            "reduceOnly": True,
+        }
+
+        tp_res = await self._req("POST", ST_ORDERS_PATH, j=tp_req)
+        sl_res = await self._req("POST", ST_ORDERS_PATH, j=sl_req)
+
+        tp_id = tp_res.get("data", {}).get("orderId")
+        sl_id = sl_res.get("data", {}).get("orderId")
+        if tp_id and sl_id:
+            self._order_pairs[tp_id] = sl_id
+            self._order_pairs[sl_id] = tp_id
+            await self._ensure_ws()
+
         return {"tp": tp_price, "sl": sl_price}
