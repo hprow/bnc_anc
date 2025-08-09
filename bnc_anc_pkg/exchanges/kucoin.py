@@ -8,6 +8,7 @@ from ..decision import BTC_ALIAS
 
 KC_BASE = "https://api-futures.kucoin.com"
 ST_ORDERS_PATH = "/api/v1/st-orders"
+ORDERS_PATH = "/api/v1/orders"
 CONTRACT_DETAIL = "/api/v1/contracts/{symbol}"
 MARK_PRICE_PATH = "/api/v1/mark-price/{symbol}/current"
 TICKER_PATH = "/api/v1/ticker"
@@ -252,15 +253,14 @@ class KuCoinFuturesClient(ExchangeClient):
             "closeOrder": True,
             "reduceOnly": True,
         }
-
-        tp_res = await self._req("POST", ST_ORDERS_PATH, j=tp_req)
-        sl_res = await self._req("POST", ST_ORDERS_PATH, j=sl_req)
+        await self._ensure_ws()
+        tp_res = await self._req("POST", ORDERS_PATH, j=tp_req)
+        sl_res = await self._req("POST", ORDERS_PATH, j=sl_req)
 
         tp_id = tp_res.get("data", {}).get("orderId")
         sl_id = sl_res.get("data", {}).get("orderId")
         if tp_id and sl_id:
             self._order_pairs[tp_id] = sl_id
             self._order_pairs[sl_id] = tp_id
-            await self._ensure_ws()
 
         return {"tp": tp_price, "sl": sl_price}
